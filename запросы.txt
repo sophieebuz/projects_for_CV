@@ -1,0 +1,143 @@
+-- Запрос 1
+-- Сколько продал менеджер за определенный период
+
+SELECT sum ( n.price * s.amount ) AS cumulative_sales
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+WHERE worker_id = '003'
+AND date_trunc('day', s.operation_date) >= '2021-10-01'::date AND date_trunc('day', s.operation_date) <= '2021-10-31'::date;
+
+--Проверка
+SELECT * FROM sales 
+WHERE worker_id = '003'
+AND date_trunc('day', operation_date) >= '2021-10-01'::date AND date_trunc('day', operation_date) <= '2021-10-31'::date;
+
+
+
+-- Запрос 2 (оконная функция)
+-- Предоставление сведений о распределении кол-ва выписанных чеков конкретной модели обуви во времени 
+
+SELECT 
+s.operation_date,
+extract( 'month' from s.operation_date ) AS month,
+extract( 'day' from s.operation_date ) AS day,
+count( * ) OVER (
+PARTITION BY date_trunc( 'month', s.operation_date )
+ORDER BY s.operation_date
+) AS count
+FROM sales s
+WHERE s.model_id = '010';
+
+
+
+-- Запрос 3 (CTE)
+-- Посмотреть какой тип клиентов (госконтрактник, платник, платник с возмещением) больше приносит дохода
+
+WITH cpr AS
+( SELECT s.client_id,
+sum( n.price * s.amount)
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+GROUP BY s.client_id
+)
+SELECT 
+c.type_of_clients,
+sum( cpr.sum )
+FROM cpr JOIN clients c
+ON cpr.client_id = c.client_id
+GROUP BY c.type_of_clients;
+
+
+-- тестирование подзапросов 
+SELECT
+client_id,
+sum( n.price * s.amount)
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+GROUP BY s.client_id;
+
+SELECT 
+type_of_clients
+FROM clients
+GROUP BY type_of_clients;
+
+
+
+
+-- Запрос 4
+-- Посчитать сумму закупок по месяцам и сумму продаж по месяцам
+
+SELECT extract( 'year' from operation_date ) AS year,
+extract( 'month' from operation_date ) AS month,
+sum( total_amount ) AS total_purchase_price
+FROM supplies
+GROUP BY date_trunc( 'month', operation_date ), year, month
+ORDER BY year, month;
+
+
+-- Запрос 5
+-- Посчитать сумму продаж по месяцам
+
+SELECT extract( 'year' from s.operation_date ) AS year,
+extract( 'month' from s.operation_date ) AS month,
+sum( n.price * s.amount) AS total_sale_price
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+GROUP BY date_trunc( 'month', s.operation_date ), year, month
+ORDER BY year, month;
+
+
+
+-- Запрос 6 (CTE)
+-- Посмотреть из какого подразделения больше всего идут продажи
+
+WITH fpr AS
+(SELECT s.filial_id,
+sum( n.price * s.amount) AS total_sale_price
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+WHERE date_trunc('day', s.operation_date) >= '2021-10-01'::date AND date_trunc('day', s.operation_date) <= '2021-10-31'::date
+GROUP BY s.filial_id
+)
+SELECT 
+fpr.filial_id,
+f.type_of_filials,
+fpr.total_sale_price,
+f.adress
+FROM fpr JOIN filials f
+ON fpr.filial_id = f.filial_id
+ORDER BY fpr.total_sale_price DESC;
+
+
+
+
+
+
+
+
+
+-- Запрос ЭКЗАМЕНАЦИОННОЙ
+-- проранжировать модели по доходу (суммарные продажи)
+
+WITH tpr AS
+( SELECT n.model_id,
+n.model_name,
+sum( n.price * s.amount)
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+GROUP BY n.model_id
+)
+
+SELECT tpr.model_id,
+tpr.model_name,
+tpr.sum
+FROM tpr
+ORDER BY tpr.sum DESC;
+
+
+-- проверка подзапроса
+SELECT n.model_id, 
+sum( n.price * s.amount)
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+GROUP BY n.model_id;
