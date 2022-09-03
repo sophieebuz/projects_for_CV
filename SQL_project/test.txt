@@ -1,0 +1,5 @@
+LIMIT 1; 
+
+-- Запрос 3
+SELECT name, duration, max(duration) OVER() as max_duration, amount_students, max(amount_students) OVER() as max_amount_students
+FROM programs;
