@@ -1,0 +1,437 @@
+CREATE TABLE filials
+( filial_id varchar(3) PRIMARY KEY,
+type_of_filials varchar(12) NOT NULL
+CHECK ( type_of_filials IN ( 'Склад',  'Магазин', 'Офис', 'Пункт выдачи') ),
+city text NOT NULL, 
+tel text NOT NULL,
+adress jsonb NOT NULL
+);
+
+
+
+CREATE TABLE clients
+(
+client_id varchar(3) PRIMARY KEY,
+clients_name text NOT NULL,
+type_of_clients text NOT NULL
+CHECK ( type_of_clients IN ( 'Госконтрактник',  'Платник', 'Платник с возмещением') ),
+doc_ser numeric( 4 ) NOT NULL,
+doc_num numeric( 6 ) NOT NULL,
+birthday date NOT NULL,
+gender text NOT NULL
+CHECK ( gender IN ( 'male', 'female') ),
+snils text NOT NULL,
+tel text NOT NULL,
+adress jsonb NOT NULL,
+CONSTRAINT unique_passport_client UNIQUE ( doc_ser, doc_num )
+);
+
+
+
+CREATE TABLE suppliers
+(
+supplier_id varchar(3) PRIMARY KEY,
+supplier_name text NOT NULL,
+type_of_supplier text NOT NULL
+CHECK ( type_of_supplier IN ('физ. лицо', 'юр. лицо') ),
+tel text NOT NULL,
+adress jsonb NOT NULL
+);
+
+
+
+CREATE TABLE workers
+(
+worker_id varchar(3) PRIMARY KEY,
+worker_name text NOT NULL,
+position text NOT NULL,
+filial_id varchar(3) NOT NULL,
+doc_ser numeric( 4 ) NOT NULL,
+doc_num numeric( 6 ) NOT NULL,
+birthday date NOT NULL,
+gender text NOT NULL
+CHECK ( gender IN ( 'male', 'female') ), 
+tel text NOT NULL,
+CONSTRAINT unique_passport UNIQUE ( doc_ser, doc_num ),
+FOREIGN KEY ( filial_id ) REFERENCES filials ( filial_id )
+);
+
+
+
+CREATE TABLE nomenclature
+(
+model_id varchar(3) PRIMARY KEY,
+vendor_code varchar(4) NOT NULL,
+model_name text NOT NULL,
+section text NOT NULL
+CHECK ( section IN ( 'Обувь женская', 'Обувь мужская', 'Обувь детская') ),
+season text NOT NULL
+CHECK ( season IN ( 'Зима', 'Лето', 'Весна-осень') ),
+color text NOT NULL
+CHECK ( color IN ( 'Черный', 'Синий', 'Красный', 'Коричневый', 'Белый') ),
+price numeric(7, 2) NOT NULL,
+purchase_price numeric(7, 2),
+size integer NOT NULL,
+brand text NOT NULL,
+CONSTRAINT unique_model UNIQUE ( vendor_code, size )
+);
+
+
+
+CREATE TABLE supplies
+(
+supply_id varchar(10) PRIMARY KEY,
+operation_date timestamp NOT NULL,
+supplier_id varchar(3) NOT NULL,
+total_amount numeric (9, 2) NOT NULL,
+price_for_one numeric(7, 2) NOT NULL,
+amount integer NOT NULL,
+model_id varchar(3) NOT NULL,
+worker_id varchar(3) NOT NULL,
+
+FOREIGN KEY ( supplier_id ) REFERENCES suppliers ( supplier_id ),
+FOREIGN KEY ( worker_id ) REFERENCES workers ( worker_id ),
+FOREIGN KEY ( model_id ) REFERENCES nomenclature ( model_id ),
+CHECK (price_for_one * amount = total_amount)
+);
+
+
+-- Триггер 3
+CREATE OR REPLACE FUNCTION update_nomenclature() RETURNS trigger AS
+$$
+DECLARE
+purchasing_price supplies.price_for_one%TYPE;
+id_model supplies.model_id%TYPE;
+
+BEGIN
+IF TG_OP = 'INSERT' THEN
+purchasing_price = NEW.price_for_one;
+id_model = NEW.model_id;
+END IF;
+
+UPDATE nomenclature n SET purchase_price = purchasing_price
+WHERE model_id = id_model;
+
+RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_nomenclature ON supplies;
+
+CREATE TRIGGER update_nomenclature
+AFTER INSERT ON supplies
+FOR EACH ROW EXECUTE PROCEDURE update_nomenclature();
+
+
+
+CREATE TABLE stock
+(
+model_id varchar(3) PRIMARY KEY,
+amount integer NOT NULL
+CHECK (amount >= 0),
+filial_id varchar(3) NOT NULL,
+
+FOREIGN KEY ( model_id ) REFERENCES nomenclature ( model_id ),
+FOREIGN KEY ( filial_id ) REFERENCES filials ( filial_id )
+);
+
+
+
+-- Триггер 1
+
+CREATE OR REPLACE FUNCTION update_stock() RETURNS trigger AS
+$$
+DECLARE
+delta stock.amount%TYPE;
+id_model stock.model_id%TYPE;
+
+BEGIN
+IF TG_OP = 'INSERT' THEN
+delta = NEW.amount;
+id_model = NEW.model_id;
+END IF;
+
+UPDATE stock s SET amount = amount + delta
+WHERE model_id = id_model;
+
+RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_stock ON supplies;
+
+CREATE TRIGGER update_stock
+AFTER INSERT ON supplies
+FOR EACH ROW EXECUTE PROCEDURE update_stock();
+
+
+
+CREATE TABLE sales
+(
+sale_id varchar(10) PRIMARY KEY,
+operation_date timestamp NOT NULL,
+client_id varchar(3) NOT NULL,
+model_id varchar(3) NOT NULL,
+sale_type text NOT NULL
+CHECK ( sale_type IN ( 'Индивидуальный пошив', 'Из каталога') ),
+order_status text NOT NULL
+CHECK ( order_status IN ( 'В производстве', 'Готов', 'На примерке', 'На складе', 'Доставка', 'Выдан на руки') ),
+amount integer NOT NULL,
+form_of_payment text NOT NULL, 
+delivery_method text NOT NULL
+CHECK ( delivery_method IN ( 'Самовывоз', 'Курьер', 'СДЭК', 'Почта России') ),
+filial_id varchar(3) NOT NULL,
+worker_id varchar(3) NOT NULL,
+
+FOREIGN KEY ( filial_id ) REFERENCES filials ( filial_id ),
+FOREIGN KEY ( client_id ) REFERENCES clients ( client_id ),
+FOREIGN KEY ( worker_id ) REFERENCES workers ( worker_id ),
+FOREIGN KEY ( model_id ) REFERENCES nomenclature ( model_id )
+);
+
+
+-- Триггер 2
+
+CREATE OR REPLACE FUNCTION update_stock2() RETURNS trigger AS
+$$
+DECLARE
+delta stock.amount%TYPE;
+id_model stock.model_id%TYPE;
+
+BEGIN
+IF TG_OP = 'INSERT' THEN
+delta = NEW.amount;
+id_model = NEW.model_id;
+END IF;
+
+UPDATE stock s SET amount = amount - delta
+WHERE model_id = id_model;
+
+RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_stock2 ON sales;
+
+CREATE TRIGGER update_stock2
+AFTER INSERT ON sales
+FOR EACH ROW EXECUTE PROCEDURE update_stock2();
+
+
+
+
+
+
+
+
+-- вставки
+INSERT INTO filials (filial_id, type_of_filials, city, tel, adress )
+VALUES ('001', 'Офис', 'Москва', '8-495-312-56-82', '{"адрес": "г. Москва, ул. Большая Татарская, вл13с16"}'::jsonb),
+       ('002', 'Офис', 'Москва', '8-495-313-56-82', '{"адрес": "г. Москва, ул. Коломенская, 7"}'::jsonb),
+       ('003', 'Магазин', 'Москва', '8-499-342-56-82', '{"адрес": "г. Москва, 2-й Кадашёвский переулок, 5с2"}'::jsonb),
+       ('004', 'Магазин', 'Москва', '8-495-315-56-82', '{"адрес": "г. Москва, Скатертный переулок, 4/2с1"}'::jsonb),
+       ('005', 'Магазин', 'Москва', '8-499-316-56-82', '{"адрес": "г. Москва, ул. Новосущёвская, 19Б"}'::jsonb),
+       ('006', 'Склад', 'Москва', '8-498-317-56-82', '{"адрес": "г. Москва, проспект Вернадского, 8к1"}'::jsonb),
+       ('007', 'Склад', 'Москва', '8-495-312-26-82', '{"адрес": "г. Москва, Рязанский проспект, 4"}'::jsonb),
+       ('008', 'Пункт выдачи', 'Домодедово', '8-498-372-56-82', '{"адрес": "Московская область, микрорайон Северный, г.Домодедово, ул. Центральная, 22"}'::jsonb),
+       ('009', 'Пункт выдачи', 'Одинцово', '8-499-312-56-52', '{"адрес": "Московская область, г.Одинцово, ул. Комсомольская, 6"}'::jsonb),
+       ('010', 'Пункт выдачи', 'Красногорск', '8-495-312-55-82', '{"адрес": "Московская область, г.Красногорск, Советская улица, 2"}'::jsonb),
+       ('011', 'Пункт выдачи', 'Мытищи', '8-495-312-56-22', '{"адрес": "Московская область, г. Мытищи,  ул. Разведчика Абеля, 3"}'::jsonb);
+
+SELECT * FROM filials;
+
+
+
+INSERT INTO clients (client_id, clients_name, type_of_clients, doc_ser, doc_num, birthday, gender, snils, tel, adress)
+VALUES ('001', 'Сидорова Ольга Ивановна', 'Платник', 4601, 729721, '1958-06-17', 'female', '126-029-037 43', '8-916-313-56-82', '{"адрес": "г. Москва, ул. 11-я Парковая, 52"}'::jsonb),
+       ('002', 'Рубцов Иван Олегович', 'Платник', 4601, 729722, '1976-07-03', 'male', '126-029-038 43', '8-916-313-56-83', '{"адрес": "г. Москва, ул. 11-я Парковая, 53"}'::jsonb),
+       ('003', 'Козина Ольга Федоровна', 'Платник', 4602, 729723, '1980-11-23', 'female', '126-069-036 43', '8-916-313-56-84', '{"адрес": "г. Москва, ул. 11-я Парковая, 54"}'::jsonb),
+       ('004', 'Кулакова Валерия Михайловна', 'Госконтрактник', 4601, 729724, '1959-04-30', 'female', '126-023-036 43', '8-916-313-56-85', '{"адрес": "г. Москва, ул. 11-я Парковая, 55"}'::jsonb),
+       ('005', 'Фуханов Константин Валерьевич', 'Госконтрактник', 4604, 729725, '1996-05-20', 'male', '126-025-036 43', '8-916-313-56-86', '{"адрес": "г. Москва, ул. 11-я Парковая, 56"}'::jsonb),
+       ('006', 'Иванов Семен Александрович', 'Платник с возмещением', 4603, 729726, '1996-02-06', 'male', '126-029-033 43', '8-916-313-56-87', '{"адрес": "г. Москва, ул. 11-я Парковая, 57"}'::jsonb),
+       ('007', 'Марикина Анна Владимировна', 'Платник с возмещением', 4604, 729727, '2001-12-14', 'female', '126-029-096 43', '8-916-313-56-88', '{"адрес": "г. Москва, ул. 11-я Парковая, 58"}'::jsonb);
+
+SELECT * FROM clients;
+
+
+
+INSERT INTO suppliers (supplier_id, supplier_name, type_of_supplier, tel, adress)
+VALUES ('001', 'Альфа', 'юр. лицо', '8-496-976-06-02', '{"адрес": "г. Москва, Зеленоград, к303"}'::jsonb),
+       ('002', 'Косолапова Марина Иванова', 'физ. лицо', '8-925-872-05-02', '{"адрес": " Московская область, г. Химки, ул. 8 Марта, 9"}'::jsonb),
+       ('003', 'ОРТОМОДА', 'юр. лицо', '8-496-972-75-02', '{"адрес": "Московская область, г.Воскресенск, Лопатинская улица, 9с2"}'::jsonb),
+       ('004', 'orteka', 'юр. лицо', '8-496-972-05-82', '{"адрес": "г.Калуга,  Пролетарская улица, 118"}'::jsonb);
+
+SELECT * FROM suppliers;
+
+
+
+INSERT INTO workers (worker_id, worker_name, position, filial_id, doc_ser, doc_num, birthday, gender, tel)
+VALUES ('001', 'Петров Игорь Викторович', 'Менеджер', '009', 4601, 729321, '1974-10-29', 'male', '8-916-340-02-11'),
+       ('002', 'Романова Алла Игоревна', 'Директор', '001', 2601, 729421, '1975-07-10', 'female', '8-916-341-02-11'),
+       ('003', 'Щербакова Анна Витальевна', 'Продавец', '011', 4701, 769721, '1976-05-08', 'female', '8-916-342-02-11'),
+       ('004', 'Кириенко Максим Викторович', 'Директор', '002', 4701, 727721, '1988-10-21', 'male', '8-916-343-02-11'),
+       ('005', 'Ушакова Людмила Леонидовна', 'Продавец', '010', 5601, 728721, '1984-08-29', 'female', '8-916-344-02-11'),
+       ('006', 'Русакова Дана Марковна', 'Менеджер', '005', 4201, 722721, '1991-07-27', 'female', '8-916-345-02-11'),
+       ('007', 'Никифорова Инна Юрьевна', 'Продавец', '005', 4633, 720721, '1990-04-29', 'female', '8-916-346-02-11'),
+       ('008', 'Казинин Михаил Романович', 'Менеджер', '004', 4401, 721721, '1969-08-03', 'male', '8-916-347-02-11'),
+       ('009', 'Пешков Евгений Геннадьевич', 'Бухгалтер', '002', 4651, 723721, '1978-02-19', 'male', '8-916-348-02-11'),
+       ('010', 'Макарова Анастасия Анатольевна', 'Главный бухгалтер', '001', 4501, 725721, '1980-12-31', 'female', '8-916-349-02-11'),
+       ('016', 'Спектр Стас Вячеславович', 'Менеджер', '008', 4541, 729621, '1979-10-01', 'male', '8-916-319-02-11'),       ('011', 'Петров Игорь Викторович', 'Менеджер', '001', 4601, 729721, '1974-10-29', 'male', '8-916-349-02-11'),
+       ('012', 'Микулов Богдан Станиславович', 'Продавец', '003', 4631, 723721, '1992-07-18', 'male', '8-916-329-02-11'),
+       ('013', 'Татаринов Иван Иванович', 'Генеральный директор', '001', 4641, 729021, '1984-05-20', 'male', '8-916-339-02-11'),
+       ('014', 'Алиева Камила Евгеньевна', 'Кладовщик', '006', 4631, 729720, '1985-10-23', 'female', '8-916-359-02-11'),
+       ('015', 'Ратищинов Кирилл Кириллович', 'Кладовщик', '007', 4606, 739721, '1974-01-29', 'male', '8-916-369-02-11');
+
+SELECT * FROM workers;
+
+
+
+INSERT INTO nomenclature (model_id, vendor_code, model_name, section, season, color, price, size, brand)
+VALUES ('001', 'A101', 'Ботильоны из натуральной кожи, 82374-Х-106', 'Обувь женская', 'Весна-осень', 'Красный', 9900, 37, 'ОРТОМОДА'),
+       ('002', 'A101', 'Ботильоны из натуральной кожи, 82374-Х-106', 'Обувь женская', 'Весна-осень', 'Красный', 9900, 38, 'ОРТОМОДА'),
+       ('003', 'Б101', 'Детские полуботинки Ортомода, натуральная кожа 201-60 (Х-07/Х-75)', 'Обувь детская', 'Весна-осень', 'Синий', 4500, 26, 'ОРТОМОДА'),
+       ('004', 'A102', 'Женские полуботинки на диабетическую стопу Ортомода, натуральная кожа 8502-Л-502', 'Обувь женская', 'Лето', 'Коричневый', 7990, 37, 'orteka'),
+       ('005', 'В101', 'САБО АНАТОМИЧЕСКИЕ ЛЕТНИЕ, НАТУРАЛЬНАЯ КОЖА 9161', 'Обувь мужская', 'Лето', 'Белый', 4590, 42, 'ОРТОМОДА'),
+       ('006', 'В101', 'САБО АНАТОМИЧЕСКИЕ ЛЕТНИЕ, НАТУРАЛЬНАЯ КОЖА 9161', 'Обувь мужская', 'Лето', 'Белый', 4590, 43, 'ОРТОМОДА'),
+       ('007', 'В101', 'САБО АНАТОМИЧЕСКИЕ ЛЕТНИЕ, НАТУРАЛЬНАЯ КОЖА 9161', 'Обувь мужская', 'Лето', 'Белый', 4590, 44, 'ОРТОМОДА'),
+       ('008', 'В102', 'МУЖСКИЕ БОТИНКИ ОРТОПЕДИЧЕСКИЕ ЗИМНИЕ ОРТОМОДА, НАТУРАЛЬНАЯ КОЖА, МЕХ 9131 Б/ш-м', 'Обувь мужская', 'Зима', 'Черный', 6200, 44, 'orteka'),
+       ('009', 'Б102', 'детские ортопедические сандалии Ортомода, натуральная кожа 2139-ХМ-019', 'Обувь детская', 'Лето', 'Красный', 5900, 24, 'Альфа'),
+       ('010', 'Б102', 'детские ортопедические сандалии Ортомода, натуральная кожа 2139-ХМ-019', 'Обувь детская', 'Лето', 'Красный', 5900, 30, 'Альфа'),
+       ('011', 'Б103', 'Детские зимние ботинки Ортомода, натуральная кожа 21189-Н-226', 'Обувь детская', 'Зима', 'Коричневый', 8300, 28, 'Кидзания'),
+       ('012', 'Б104', 'ДЕТСКИЕ БОТИНКИ ОРТОПЕДИЧЕСКИЕ ДЕМИСЕЗОННЫЕ ОРТОМОДА, НАТУРАЛЬНАЯ КОЖА 2131 Б', 'Обувь детская', 'Весна-осень', 'Черный', 5900, 33, 'Кидзания'),
+       ('013', 'A103', 'Зимние ботинки на велькро 82411-Н-927', 'Обувь женская', 'Зима', 'Черный', 9000, 36, 'ОРТОМОДА'),
+       ('014', 'A103', 'Зимние ботинки на велькро 82411-Н-927', 'Обувь женская', 'Зима', 'Черный', 9000, 37, 'ОРТОМОДА'),
+       ('015', 'A103', 'Зимние ботинки на велькро 82411-Н-927', 'Обувь женская', 'Зима', 'Черный', 9000, 38, 'ОРТОМОДА'),
+       ('016', 'A104', 'ЖЕНСКИЕ ТУФЛИ ОРТОПЕДИЧЕСКИЕ ЛЕТНИЕ ОРТОМОДА, НАТУРАЛЬНАЯ КОЖА 8226', 'Обувь женская', 'Лето', 'Красный', 5717, 38, 'Унилюкс'),
+       ('017', 'A104', 'ЖЕНСКИЕ ТУФЛИ ОРТОПЕДИЧЕСКИЕ ЛЕТНИЕ ОРТОМОДА, НАТУРАЛЬНАЯ КОЖА 8226', 'Обувь женская', 'Лето', 'Красный', 5717, 39, 'Унилюкс'),
+       ('018', 'В103', 'Мужские полуботинки на диабетическую стопу Ортомода, натуральная кожа 8122 в (муж)', 'Обувь мужская', 'Весна-осень', 'Синий', 6590, 37, 'ОРТОМОДА'),
+       ('019', 'В103', 'Мужские полуботинки на диабетическую стопу Ортомода, натуральная кожа 8122 в (муж)', 'Обувь мужская', 'Весна-осень', 'Синий', 6590, 38, 'ОРТОМОДА'),
+       ('020', 'В104', 'МУЖСКИЕ ПОЛУБОТИНКИ ОРТОПЕДИЧЕСКИЕ ДЕМИСЕЗОННЫЕ ОРТОМОДА, НАТУРАЛЬНАЯ КОЖА 9229', 'Обувь женская', 'Весна-осень', 'Красный', 9900, 37, 'ОРТОМОДА');
+
+SELECT * FROM nomenclature;
+
+
+
+INSERT INTO stock (model_id, amount, filial_id)
+VALUES ('001', 5, '001'),
+       ('002', 2, '001'),
+       ('003', 1, '002'),
+       ('004', 10, '006'),
+       ('005', 0, '006'),
+       ('006', 3, '006'),
+       ('007', 2, '006'),
+       ('008', 20, '011'),
+       ('009', 5, '010'),
+       ('010', 7, '010'),
+       ('011', 2, '009'),
+       ('012', 1, '008'),
+       ('013', 4, '003'),
+       ('014', 3, '003'),
+       ('015', 6, '003'),
+       ('016', 8, '004'),
+       ('017', 7, '004'),
+       ('018', 2, '005'),
+       ('019', 4, '005'),
+       ('020', 9, '007');
+
+SELECT * FROM stock;
+
+
+
+INSERT INTO supplies (supply_id, operation_date, supplier_id, total_amount, price_for_one, amount, model_id, worker_id)
+VALUES ('1', '2021-09-21 12:25:35', '003', 15000, 5000, 3, '001', '001'),
+       ('2', '2021-09-22 15:35:55', '003', 24000, 3000, 8, '002', '006'),
+       ('3', '2021-09-22 18:02:50', '003', 60000, 4000, 15, '006', '008'),
+       ('4', '2021-09-24 09:10:35', '003', 33000, 5500, 6, '007', '016'),
+       ('5', '2021-09-25 11:26:41', '001', 35000, 3500, 10, '011', '006'),
+       ('6', '2021-09-26 20:00:32', '003', 20000, 4000, 5, '018', '001'),
+       ('7', '2021-09-26 13:30:58', '003', 48000, 8000, 6, '014', '001'),
+       ('8', '2021-09-26 14:10:35', '003', 50000, 2000, 25, '019', '008'),
+       ('9', '2021-09-27 12:57:05', '002', 15500, 3100, 5, '017', '016'),
+       ('10', '2021-10-05 17:04:35', '001', 25000, 2500, 10, '009', '008'),
+       ('11', '2021-10-12 15:47:00', '003', 36000, 4500, 8, '015', '016'),
+       ('12', '2021-10-24 13:00:51', '003', 15000, 3000, 5, '020', '008'),
+       ('13', '2021-10-30 08:27:28', '003', 17600, 4400, 4, '001', '006'),
+       ('14', '2021-10-30 15:25:29', '002', 28000, 4000, 7, '012', '001'),
+       ('15', '2021-11-01 12:48:04', '003', 18000, 3000, 6, '013', '001');
+
+SELECT * FROM supplies;
+
+
+
+INSERT INTO sales (sale_id, operation_date, client_id, model_id, sale_type, order_status, amount, form_of_payment, delivery_method, filial_id, worker_id)
+VALUES ('1', '2021-09-21 14:08:35', '001', '001', 'Из каталога', 'На складе', 1, 'рассрочка', 'Курьер', '003', '003'),
+       ('2', '2021-09-26 17:04:27', '002', '004', 'Из каталога', 'Выдан на руки', 2, 'По карте', 'Самовывоз', '005', '005'),
+       ('3', '2021-09-27 15:25:12', '003', '007', 'Индивидуальный пошив', 'Доставка', 1, 'Наличные', 'Самовывоз', '004', '007'),
+       ('4', '2021-09-27 12:07:43', '007', '018', 'Из каталога', 'Доставка', 1, 'наличными', 'Курьер', '005', '012'),
+       ('5', '2021-09-30 13:28:58', '006', '017', 'Из каталога', 'Выдан на руки', 1, 'По карте', 'Почта России', '004', '005'),
+       ('6', '2021-09-30 09:10:34', '005', '015', 'Индивидуальный пошив', 'В производстве', 1, 'наличными', 'Курьер', '004', '012'),
+       ('7', '2021-09-30 15:37:00', '004', '010', 'Из каталога', 'Доставка', 2, 'госконтракт', 'Курьер', '003', '007'),
+       ('8', '2021-10-02 09:17:06', '004', '006', 'Из каталога', 'Доставка', 1, 'По карте', 'Курьер', '006', '003'),
+       ('9', '2021-10-05 14:56:16', '002', '004', 'Из каталога', 'Доставка', 1, 'По карте', 'Самовывоз', '007', '003'),
+       ('10', '2021-10-06 21:04:28', '001', '020', 'Индивидуальный пошив', 'Готов', 1, 'По карте', 'СДЭК', '003', '005'),
+       ('11', '2021-10-06 12:11:30', '006', '010', 'Из каталога', 'На складе', 1, 'По карте', 'СДЭК', '006', '007'),
+       ('12', '2021-10-14 13:16:15', '007', '008', 'Из каталога', 'Выдан на руки', 1, 'наличными', 'Курьер', '008', '012'),
+       ('13', '2021-10-17 16:14:29', '003', '009', 'Из каталога', 'Доставка', 2, 'По карте', 'Курьер', '009', '005'),
+       ('14', '2021-10-19 20:40:50', '002', '013', 'Из каталога', 'Выдан на руки', 1, 'По карте', 'Самовывоз', '010', '003'),
+       ('15', '2021-10-20 11:18:10', '005', '006', 'Из каталога', 'Доставка', 1, 'госконтракт', 'СДЭК', '011', '012'),
+       ('16', '2021-11-04 17:13:25', '007', '016', 'Из каталога', 'Выдан на руки', 1, 'рассрочка', 'Курьер', '003', '003'),
+       ('17', '2021-11-04 19:36:57', '004', '010', 'Из каталога', 'Доставка', 1, 'госконтракт', 'Самовывоз', '004', '007'),
+       ('18', '2021-11-06 20:25:40', '001', '002', 'Индивидуальный пошив', 'На примерке', 1, 'наличными', 'Самовывоз', '003', '007'),
+       ('19', '2021-11-13 11:37:44', '002', '008', 'Из каталога', 'На складе', 1, 'По карте', 'Почта России', '002', '012'),
+       ('20', '2021-11-14 10:09:35', '004', '001', 'Из каталога', 'Доставка', 1, 'госконтракт', 'Курьер', '010', '005');
+
+SELECT * FROM sales;
+
+
+
+
+-- Функция 1
+
+
+
+DROP FUNCTION amount_of_sale ( sale_id varchar(10) );
+
+CREATE OR REPLACE FUNCTION amount_of_sale( sale_id varchar(10), OUT price_for_one numeric(7, 2), OUT total_amount numeric (9, 2), OUT amount integer)
+AS $$
+SELECT n.price AS price_for_one,
+n.price * s.amount AS total_amount,
+s.amount AS amount
+FROM nomenclature n JOIN sales s
+ON n.model_id = s.model_id
+WHERE s.sale_id = sale_id;
+$$ LANGUAGE sql; 
+
+
+
+-- Функция 2 (сложн)
+
+DROP FUNCTION profit_per_period( start_date date, finish_date date );
+
+CREATE OR REPLACE FUNCTION profit_per_period2( start_date date, finish_date date,
+OUT start_dat date, OUT finish_date date, OUT total_sale_price numeric (11, 2), OUT total_purchase_price numeric (11, 2), OUT profit numeric (11, 2))
+AS $$
+
+SELECT  
+start_date,
+finish_date,
+
+( SELECT sum( n.price * s.amount)
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+WHERE date_trunc('day', s.operation_date) >= start_date AND date_trunc('day', s.operation_date) <= finish_date)
+AS total_sale_price,
+
+( SELECT sum( total_amount )
+FROM supplies
+WHERE date_trunc('day', operation_date) >= start_date AND date_trunc('day', operation_date) <= finish_date)
+AS total_purchase_price,
+
+( SELECT sum( n.price * s.amount)
+FROM sales s JOIN nomenclature n
+ON s.model_id = n.model_id
+WHERE date_trunc('day', s.operation_date) >= start_date AND date_trunc('day', s.operation_date) <= finish_date) - ( SELECT sum( total_amount )
+FROM supplies
+WHERE date_trunc('day', operation_date) >= start_date AND date_trunc('day', operation_date) <= finish_date) AS profit;
+
+$$ LANGUAGE sql; 
